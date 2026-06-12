@@ -99,6 +99,7 @@ class EssayDetail(BaseModel):
     grade: str
     confidence: float
     traits: dict
+    grammar_errors: list[GrammarError] = []
     grammar_error_count: int
     word_count: int
     char_count: int
@@ -106,6 +107,9 @@ class EssayDetail(BaseModel):
     analytics: dict
     readability: dict
     created_at: str
+    sentence_count: int
+    paragraph_count: int
+    unique_words: int
 
     class Config:
         from_attributes = True

@@ -548,7 +548,9 @@ input, textarea, select {
 }
 
 .tab {
-  padding: 10px 16px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 4px;
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-secondary);

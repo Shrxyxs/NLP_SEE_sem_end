@@ -19,11 +19,11 @@ from sqlalchemy import desc
 # Add parent dir to path so we can import lang_detector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from .scorer import EssayScorerService
-from .analyzer import analyze_essay
-from .database import get_db, init_db
-from .models import Essay
-from .schemas import (
+from scorer import EssayScorerService
+from analyzer import analyze_essay
+from database import get_db, init_db
+from models import Essay
+from schemas import (
     EvaluateRequest, EvaluateResponse,
     EssayListItem, EssayDetail,
     DashboardStats, AnalyticsResponse,
@@ -73,7 +73,11 @@ app = FastAPI(
 # CORS for Vite dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "http://localhost:5175", "http://127.0.0.1:5175",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,11 +94,12 @@ def evaluate_essay(req: EvaluateRequest, db: Session = Depends(get_db)):
     # Detect language
     lang = detect_language(req.text)
 
-    # Score with BERT
+    # Score with BERT/MuRIL depending on language
     scorer = EssayScorerService.get_instance()
     score_result = scorer.score_essay(
         text=req.text,
         prompt_id=req.prompt_id,
+        language=lang,
     )
 
     # Analyze text
@@ -184,7 +189,14 @@ def get_essay(essay_id: int, db: Session = Depends(get_db)):
     essay = db.query(Essay).filter(Essay.id == essay_id).first()
     if not essay:
         raise HTTPException(status_code=404, detail="Essay not found")
-    return essay.to_detail()
+    
+    # Run conventions check dynamically since we don't save the full JSON of errors in DB
+    from analyzer import score_conventions
+    conventions = score_conventions(essay.text)
+    
+    res = essay.to_detail()
+    res["grammar_errors"] = conventions["errors"]
+    return res
 
 
 # =====================

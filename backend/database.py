@@ -30,6 +30,6 @@ def get_db():
 
 def init_db():
     """Create all tables."""
-    from . import models  # noqa
+    import models  # noqa
     Base.metadata.create_all(bind=engine)
     print("[Database] SQLite initialized at", DB_PATH)

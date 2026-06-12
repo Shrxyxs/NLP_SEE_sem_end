@@ -12,6 +12,119 @@ import textstat
 import language_tool_python
 from collections import Counter
 
+class FallbackMatch:
+    def __init__(self, message, context, offset, length, rule_id, replacements, category):
+        self.message = message
+        self.context = context
+        self.offset = offset
+        self.errorLength = length
+        self.length = length
+        self.rule_id = rule_id
+        self.replacements = replacements
+        self.category = category
+
+
+class FallbackLanguageTool:
+    def __init__(self):
+        pass
+
+    def check(self, text: str):
+        matches = []
+        
+        # 1. System warning that we are running in light mode
+        matches.append(FallbackMatch(
+            message="Notice: Basic conventions check enabled. Install Java on the server to enable detailed grammar & spelling evaluation.",
+            context="System environment warning: Java not found.",
+            offset=0,
+            length=0,
+            rule_id="JAVA_MISSING_WARNING",
+            replacements=[],
+            category="SYSTEM"
+        ))
+
+        # 2. Check duplicate words (e.g. "the the", "and and")
+        for m in re.finditer(r'\b([a-zA-Z]+)\s+\1\b', text, re.IGNORECASE):
+            word = m.group(1)
+            matches.append(FallbackMatch(
+                message=f"Possible duplicated word: '{word}'",
+                context=m.group(0),
+                offset=m.start(),
+                length=m.end() - m.start(),
+                rule_id="DUP_WORD",
+                replacements=[word],
+                category="TYPOGRAPHY"
+            ))
+
+        # 3. Check lack of capitalization after sentence boundary
+        for m in re.finditer(r'(?:[.!?]\s+|^)([a-z])', text):
+            char_idx = m.start(1)
+            char = m.group(1)
+            matches.append(FallbackMatch(
+                message="This sentence does not start with an uppercase letter.",
+                context=text[max(0, char_idx-10):min(len(text), char_idx+10)],
+                offset=char_idx,
+                length=1,
+                rule_id="UPPERCASE_SENTENCE_START",
+                replacements=[char.upper()],
+                category="CASING"
+            ))
+
+        # 4. Check spacing before punctuation (e.g., "hello , world")
+        for m in re.finditer(r'\s+([,.!?])', text):
+            matches.append(FallbackMatch(
+                message="Unnecessary space before punctuation mark.",
+                context=m.group(0),
+                offset=m.start(),
+                length=m.end() - m.start(),
+                rule_id="SPACE_BEFORE_PUNCTUATION",
+                replacements=[m.group(1)],
+                category="TYPOGRAPHY"
+            ))
+
+        # 5. Check consecutive punctuation (e.g., "hello,, world")
+        for m in re.finditer(r'([,.!?])\1+', text):
+            punc = m.group(1)
+            matches.append(FallbackMatch(
+                message=f"Consecutive punctuation marks: '{m.group(0)}'",
+                context=m.group(0),
+                offset=m.start(),
+                length=m.end() - m.start(),
+                rule_id="CONSECUTIVE_PUNCTUATION",
+                replacements=[punc],
+                category="TYPOGRAPHY"
+            ))
+
+        return matches
+
+
+def _add_java_to_path_if_needed():
+    import os
+    import shutil
+    import sys
+
+    if shutil.which("java") is not None:
+        return  # Java is already in PATH
+
+    # Java is not in PATH, search common Windows installation directories
+    if sys.platform == "win32":
+        common_paths = [
+            r"C:\Program Files\Java",
+            r"C:\Program Files (x86)\Java",
+        ]
+        for base in common_paths:
+            if os.path.exists(base):
+                for item in os.listdir(base):
+                    full_path = os.path.join(base, item)
+                    if os.path.isdir(full_path):
+                        bin_dir = os.path.join(full_path, "bin")
+                        java_exe = os.path.join(bin_dir, "java.exe")
+                        if os.path.exists(java_exe):
+                            print(f"[Analyzer] Found Java at {java_exe}, adding to PATH and setting JAVA_HOME")
+                            os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+                            os.environ["JAVA_HOME"] = full_path
+                            return
+
+
 # ---------------------
 # Initialize LanguageTool (downloads ~170MB on first run)
 # ---------------------
@@ -21,9 +134,15 @@ _tool = None
 def _get_language_tool():
     global _tool
     if _tool is None:
-        print("[Analyzer] Loading LanguageTool (first run may download ~170MB)...")
-        _tool = language_tool_python.LanguageTool('en-US')
-        print("[Analyzer] LanguageTool ready.")
+        _add_java_to_path_if_needed()
+        try:
+            print("[Analyzer] Loading LanguageTool (first run may download ~170MB)...")
+            _tool = language_tool_python.LanguageTool('en-US')
+            print("[Analyzer] LanguageTool ready.")
+        except Exception as e:
+            print(f"[Analyzer] Failed to load LanguageTool (Java might be missing): {e}")
+            print("[Analyzer] Falling back to Regex-based syntax/grammar checker.")
+            _tool = FallbackLanguageTool()
     return _tool
 
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { evaluateEssay, type EvaluateResponse } from '../api/client';
+import { useSearchParams } from 'react-router-dom';
+import { evaluateEssay, getEssay, type EvaluateResponse } from '../api/client';
 import ScoreGauge from '../components/ScoreGauge';
 
 type TabKey = 'scores' | 'grammar' | 'sentences' | 'rewrite' | 'vocab' | 'analysis';
@@ -30,6 +31,9 @@ const TRAIT_COLORS: Record<string, string> = {
 };
 
 export default function Evaluate() {
+  const [searchParams] = useSearchParams();
+  const essayId = searchParams.get('id');
+
   const [text, setText] = useState('');
   const [language, setLanguage] = useState<'english' | 'kannada'>('english');
   const [promptId, setPromptId] = useState(1);
@@ -37,6 +41,35 @@ export default function Evaluate() {
   const [result, setResult] = useState<EvaluateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState('');
+
+  // Load essay from DB if ID is provided in URL
+  useEffect(() => {
+    if (essayId) {
+      const idNum = Number(essayId);
+      if (!isNaN(idNum)) {
+        setLoading(true);
+        getEssay(idNum)
+          .then((res) => {
+            setResult(res);
+            setText(res.text || '');
+            if (res.language_detected) {
+              setLanguage(res.language_detected as 'english' | 'kannada');
+            } else if (res.language) {
+              setLanguage(res.language as 'english' | 'kannada');
+            }
+            if (res.prompt_id) {
+              setPromptId(res.prompt_id);
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to load essay:', err);
+          })
+          .finally(() => {
+            setLoading(false);
+          });
+      }
+    }
+  }, [essayId]);
 
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
   const charCount = text.length;
@@ -110,6 +143,43 @@ export default function Evaluate() {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
+          {result && (
+            <div style={{
+              margin: '16px 0',
+              padding: 16,
+              background: '#FAFAF7',
+              borderRadius: 8,
+              border: '1px solid #E8E4DE',
+              fontSize: '0.85rem'
+            }}>
+              <h4 style={{ fontWeight: 700, marginBottom: 10, color: '#2D6A4F', display: 'flex', alignItems: 'center', gap: 6 }}>
+                📊 Essay Analysis Overview
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+                <div style={{ padding: '8px 12px', background: 'white', borderRadius: 6, border: '1px solid #F0ECE6' }}>
+                  <div style={{ color: '#6B7280', fontSize: '0.75rem', marginBottom: 2 }}>Words</div>
+                  <div style={{ fontWeight: 700, fontSize: '1.2rem', color: '#2C2C2C' }}>{result.word_count}</div>
+                </div>
+                <div style={{ padding: '8px 12px', background: 'white', borderRadius: 6, border: '1px solid #F0ECE6' }}>
+                  <div style={{ color: '#6B7280', fontSize: '0.75rem', marginBottom: 2 }}>Sentences</div>
+                  <div style={{ fontWeight: 700, fontSize: '1.2rem', color: '#2C2C2C' }}>{result.sentence_count}</div>
+                </div>
+                <div style={{ padding: '8px 12px', background: 'white', borderRadius: 6, border: '1px solid #F0ECE6' }}>
+                  <div style={{ color: '#6B7280', fontSize: '0.75rem', marginBottom: 2 }}>Paragraphs</div>
+                  <div style={{ fontWeight: 700, fontSize: '1.2rem', color: '#2C2C2C' }}>{result.paragraph_count}</div>
+                </div>
+                <div style={{ padding: '8px 12px', background: 'white', borderRadius: 6, border: '1px solid #F0ECE6' }}>
+                  <div style={{ color: '#6B7280', fontSize: '0.75rem', marginBottom: 2 }}>Unique Words</div>
+                  <div style={{ fontWeight: 700, fontSize: '1.2rem', color: '#2C2C2C' }}>{result.unique_words}</div>
+                </div>
+              </div>
+              <div style={{ color: '#2C2C2C', lineHeight: 1.6, padding: '4px 2px' }}>
+                Your essay was evaluated as <strong>{result.language_detected || result.language}</strong>. 
+                It received a predicted score of <strong>{result.score_100}%</strong> (Grade <strong>{result.grade}</strong>) 
+                with <strong>{result.grammar_error_count}</strong> conventions/grammar issues detected.
+              </div>
+            </div>
+          )}
           <div className="essay-footer">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: language === 'english' ? '#2D6A4F' : '#C8A951' }}>●</span>
@@ -117,23 +187,6 @@ export default function Evaluate() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {autoSaveStatus && <span style={{ color: '#9CA3AF' }}>{autoSaveStatus}</span>}
-              <select
-                value={promptId}
-                onChange={(e) => setPromptId(Number(e.target.value))}
-                style={{
-                  padding: '4px 8px', borderRadius: 6, border: '1px solid #E5E1DB',
-                  fontSize: '0.8rem', background: 'white', color: '#2C2C2C'
-                }}
-              >
-                <option value={1}>Prompt 1 (General)</option>
-                <option value={2}>Prompt 2</option>
-                <option value={3}>Prompt 3</option>
-                <option value={4}>Prompt 4</option>
-                <option value={5}>Prompt 5</option>
-                <option value={6}>Prompt 6</option>
-                <option value={7}>Prompt 7</option>
-                <option value={8}>Prompt 8</option>
-              </select>
               <button
                 className="btn btn-primary"
                 onClick={handleEvaluate}
@@ -234,7 +287,7 @@ export default function Evaluate() {
               {/* Grammar Tab */}
               {activeTab === 'grammar' && (
                 <div className="fade-in">
-                  {result && result.grammar_errors.length > 0 ? (
+                  {result && result.grammar_errors && result.grammar_errors.length > 0 ? (
                     <>
                       <div style={{ marginBottom: 12, fontSize: '0.85rem', color: '#6B7280' }}>
                         Found {result.grammar_error_count} issue{result.grammar_error_count !== 1 ? 's' : ''}

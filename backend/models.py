@@ -6,7 +6,7 @@ models.py - SQLAlchemy ORM Models
 import json
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Text, DateTime
-from .database import Base
+from database import Base
 
 
 class Essay(Base):
@@ -65,6 +65,10 @@ class Essay(Base):
         }
 
     def to_detail(self) -> dict:
+        from analyzer import _tokenize_words, _get_sentences, _get_paragraphs
+        words = _tokenize_words(self.text)
+        sentences = _get_sentences(self.text)
+        paragraphs = _get_paragraphs(self.text)
         return {
             "id": self.id,
             "title": self.title,
@@ -82,4 +86,8 @@ class Essay(Base):
             "analytics": self.analytics,
             "readability": self.readability,
             "created_at": self.created_at.isoformat() if self.created_at else "",
+            "sentence_count": len(sentences),
+            "paragraph_count": len(paragraphs),
+            "unique_words": len(set(words)),
         }
+
